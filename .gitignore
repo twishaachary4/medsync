@@ -1,0 +1,6 @@
+node_modules/
+medsync.db
+medsync.db-wal
+medsync.db-shm
+.env
+.DS_Store
