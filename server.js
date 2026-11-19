@@ -2,8 +2,12 @@ const express = require('express');
 const Database = require('better-sqlite3');
 const path = require('path');
 
+// Load variables from a .env file in this folder (Node 20.12+ / 21.7+ built-in).
+// Real environment variables still take priority over the file.
+try { process.loadEnvFile(path.join(__dirname, '.env')); } catch (e) { /* no .env file, that's fine */ }
+
 const PORT = process.env.PORT || 3000;
-const MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
+const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 const MAX_DOC = 256 * 1024;
 const PATH_RE = /^[A-Za-z0-9_\-.:@+~ ]+(\/[A-Za-z0-9_\-.:@+~ ]+)*$/;
 
@@ -105,33 +109,44 @@ app.post('/api/query', (req, res) => {
   res.json({ docs });
 });
 
-// Summaries via the Claude API. Needs ANTHROPIC_API_KEY in the environment.
+// Summaries via the Gemini API. Needs GEMINI_API_KEY (in .env or the environment).
 app.post('/api/summarize', async (req, res) => {
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) return fail(res, 503, 'sampling_disabled', 'Set ANTHROPIC_API_KEY on the server to enable summaries.');
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) return fail(res, 503, 'sampling_disabled', 'GEMINI_API_KEY is not set. Add it to the .env file and restart the server.');
   const prompt = String(req.body.prompt || '').slice(0, 20000);
   const images = Array.isArray(req.body.images) ? req.body.images.slice(0, 4) : [];
-  const content = [];
+  const parts = [];
   for (const d of images) {
     const m = /^data:(image\/(?:jpeg|png|webp|gif));base64,(.+)$/.exec(d || '');
     if (!m) return fail(res, 400, 'image_rejected', 'Unsupported image type');
-    content.push({ type: 'image', source: { type: 'base64', media_type: m[1], data: m[2] } });
+    parts.push({ inline_data: { mime_type: m[1], data: m[2] } });
   }
-  content.push({ type: 'text', text: prompt });
+  parts.push({ text: prompt });
   try {
-    const r = await fetch('https://api.anthropic.com/v1/messages', {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
+    const r = await fetch(url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: MODEL, max_tokens: 1000, messages: [{ role: 'user', content }] })
+      headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
+      body: JSON.stringify({ contents: [{ parts }], generationConfig: { maxOutputTokens: 1000 } })
     });
     const j = await r.json();
-    if (!r.ok) return fail(res, 502, 'upstream_error', (j.error && j.error.message) || 'Claude API error');
-    res.json({ text: j.content.filter(c => c.type === 'text').map(c => c.text).join('') });
+    if (!r.ok) return fail(res, 502, 'upstream_error', (j.error && j.error.message) || 'Gemini API error');
+    const text = ((j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts) || [])
+      .map(p => p.text || '').join('');
+    if (!text) return fail(res, 502, 'upstream_error', 'No summary was returned (the response may have been blocked).');
+    res.json({ text });
   } catch (e) {
-    fail(res, 502, 'upstream_error', 'Could not reach the Claude API');
+    fail(res, 502, 'upstream_error', 'Could not reach the Gemini API');
   }
 });
 
 app.use((req, res) => res.status(404).json({ code: 'not_found', error: 'Not found' }));
 
-app.listen(PORT, () => console.log(`MedSync running at http://localhost:${PORT}`));
+app.listen(PORT, () => {
+  console.log(`MedSync running at http://localhost:${PORT}`);
+  if (!process.env.GEMINI_API_KEY) {
+    console.warn('Warning: GEMINI_API_KEY is not set. Summaries are disabled. Add it to a .env file in this folder.');
+  } else {
+    console.log('Summaries enabled (GEMINI_API_KEY found).');
+  }
+});

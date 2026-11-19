@@ -518,7 +518,7 @@ async function summarize(r) {
     const out = await sp('Summarize the text written in this medical report in plain language. Include only what is written: report type, date, doctor name and the values listed. Do not diagnose, interpret results, or give medical advice.', { images: [blob] });
     $('#sumTxt').textContent = out.text;
   } catch (e) {
-    $('#sumTxt').textContent = 'Summary is unavailable right now. Please try again later.';
+    $('#sumTxt').textContent = 'Summary failed: ' + (e.message || 'unknown error');
   }
 }
 $$('[data-close]').forEach(b => b.onclick = () => $('#' + b.dataset.close).classList.add('hide'));
