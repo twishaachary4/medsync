@@ -113,7 +113,22 @@ app.post('/api/query', (req, res) => {
 app.post('/api/summarize', async (req, res) => {
   const key = process.env.GEMINI_API_KEY;
   if (!key) return fail(res, 503, 'sampling_disabled', 'GEMINI_API_KEY is not set. Add it to the .env file and restart the server.');
-  const prompt = String(req.body.prompt || '').slice(0, 20000);
+  const INSTRUCTIONS = `You are helping a patient understand their own medical report. Using only the report text above, write a clear summary in plain language. Formatting rules (these override any earlier formatting instructions): use no markdown symbols at all (no #, no *, no bold). Use exactly these sections, each heading in capital letters on its own line:
+
+OVERVIEW
+Two sentences: what kind of report this is, the date, and the main reason for the visit.
+
+KEY FINDINGS
+Short lines for the diagnosis and any results outside the normal range, explained in simple words.
+
+MEDICINES AND ADVICE
+Each medicine with dose and duration, then the doctor's advice.
+
+FOLLOW-UP
+When to return or what to watch for.
+
+Do not diagnose, add information that is not in the report, or give medical advice. If a section has nothing in the report, write "Not mentioned."`;
+const prompt = (String(req.body.prompt || '').slice(0, 20000) + '\n\n' + INSTRUCTIONS);
   const images = Array.isArray(req.body.images) ? req.body.images.slice(0, 4) : [];
   const parts = [];
   for (const d of images) {
@@ -127,7 +142,7 @@ app.post('/api/summarize', async (req, res) => {
     const r = await fetch(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
-      body: JSON.stringify({ contents: [{ parts }], generationConfig: { maxOutputTokens: 1000 } })
+      body: JSON.stringify({ contents: [{ parts }], generationConfig: { maxOutputTokens: 2000 } })
     });
     const j = await r.json();
     if (!r.ok) return fail(res, 502, 'upstream_error', (j.error && j.error.message) || 'Gemini API error');
