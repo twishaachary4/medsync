@@ -151,7 +151,8 @@ const prompt = (String(req.body.prompt || '').slice(0, 20000) + '\n\n' + INSTRUC
     if (!text) return fail(res, 502, 'upstream_error', 'No summary was returned (the response may have been blocked).');
     res.json({ text });
   } catch (e) {
-    fail(res, 502, 'upstream_error', 'Could not reach the Gemini API');
+    console.error('Gemini error:', e, e.cause);
+    fail(res, 502, 'upstream_error', 'Could not reach the Gemini API: ' + (e.cause?.code || e.message));
   }
 });
 
